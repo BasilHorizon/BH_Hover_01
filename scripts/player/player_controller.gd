@@ -27,6 +27,7 @@ var _wall_side: int = 0
 var _wall_contact_timer: float = 0.0
 var _platform_velocity: Vector3 = Vector3.ZERO
 var _platform_prev_transform: Dictionary = {}
+var _is_grounded_by_contact: bool = false
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -49,8 +50,7 @@ func _physics_process(delta: float) -> void:
 	var move_dir: Vector3 = _get_move_direction(input_dir)
 	var current_velocity: Vector3 = linear_velocity
 	var horizontal_velocity: Vector3 = Vector3(current_velocity.x, 0.0, current_velocity.z)
-	_platform_velocity = _get_ground_platform_velocity(delta)
-	var grounded: bool = ground_ray.is_colliding() or _platform_velocity != Vector3.ZERO
+	var grounded: bool = ground_ray.is_colliding() or _is_grounded_by_contact
 	if not grounded:
 		_platform_velocity = Vector3.ZERO
 
@@ -69,19 +69,23 @@ func _physics_process(delta: float) -> void:
 	_handle_wallrun(delta, grounded, move_dir)
 	_apply_wallrun_lean(delta)
 
-func _get_ground_platform_velocity(delta: float) -> Vector3:
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	_platform_velocity = _get_ground_platform_velocity_from_state(state, state.step)
+
+func _get_ground_platform_velocity_from_state(state: PhysicsDirectBodyState3D, delta: float) -> Vector3:
 	var gravity_vector: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
 	var up_dir: Vector3 = -gravity_vector.normalized()
 	var min_floor_dot: float = max(floor_threshold, cos(deg_to_rad(floor_max_angle_degrees)))
 	var best_floor_dot: float = -1.0
 	var floor_velocity: Vector3 = Vector3.ZERO
+	_is_grounded_by_contact = false
 
-	for i in get_contact_count():
-		var collider: Object = get_contact_collider_object(i)
+	for i in state.get_contact_count():
+		var collider: Object = state.get_contact_collider_object(i)
 		if collider == null:
 			continue
 
-		var local_normal: Vector3 = get_contact_local_normal(i)
+		var local_normal: Vector3 = state.get_contact_local_normal(i)
 		if local_normal == Vector3.ZERO:
 			continue
 
@@ -92,6 +96,7 @@ func _get_ground_platform_velocity(delta: float) -> Vector3:
 
 		if floor_dot > best_floor_dot:
 			best_floor_dot = floor_dot
+			_is_grounded_by_contact = true
 			floor_velocity = _get_collider_velocity(collider, delta)
 
 	return floor_velocity
