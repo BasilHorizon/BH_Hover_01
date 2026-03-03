@@ -1,0 +1,22 @@
+[gd_scene load_steps=6 format=3 uid="uid://b1n3au0sif8lx"]
+
+[ext_resource type="Script" path="res://scripts/platform/moving_platform.gd" id="1_v3amt"]
+[ext_resource type="Script" path="res://scripts/platform/platform_velocity_tracker.gd" id="2_3sibh"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_5gn7a"]
+size = Vector3(3, 0.5, 3)
+
+[sub_resource type="BoxMesh" id="BoxMesh_hq0kb"]
+size = Vector3(3, 0.5, 3)
+
+[node name="MovingPlatform" type="AnimatableBody3D"]
+script = ExtResource("1_v3amt")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_5gn7a")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_hq0kb")
+
+[node name="PlatformVelocityTracker" type="Node" parent="."]
+script = ExtResource("2_3sibh")
