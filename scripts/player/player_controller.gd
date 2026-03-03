@@ -4,12 +4,32 @@ extends RigidBody3D
 @export var air_control: float = 0.35
 @export var max_speed: float = 10.0
 @export var jump_impulse: float = 6.5
+@export var mouse_sensitivity: float = 0.003
+@export var min_pitch: float = -75.0
+@export var max_pitch: float = 75.0
 
 @onready var ground_ray: RayCast3D = $GroundRay
 @onready var wall_ray_left: RayCast3D = $WallRayLeft
 @onready var wall_ray_right: RayCast3D = $WallRayRight
+@onready var camera_pivot: Node3D = $CameraPivot
 
-func _physics_process(delta: float) -> void:
+var _pitch: float = 0.0
+
+func _ready() -> void:
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		rotate_y(-event.relative.x * mouse_sensitivity)
+		_pitch = clamp(_pitch - event.relative.y * mouse_sensitivity, deg_to_rad(min_pitch), deg_to_rad(max_pitch))
+		camera_pivot.rotation.x = _pitch
+
+	if event.is_action_pressed("ui_cancel"):
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	elif event.is_action_pressed("jump") and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+func _physics_process(_delta: float) -> void:
 	var input_dir: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var move_dir: Vector3 = _get_move_direction(input_dir)
 

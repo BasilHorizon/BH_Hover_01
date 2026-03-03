@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3 uid="uid://ce0svxd8ca3lq"]
+[gd_scene load_steps=7 format=3 uid="uid://ce0svxd8ca3lq"]
 
 [ext_resource type="Script" path="res://scripts/player/player_controller.gd" id="1_3xq3r"]
 
@@ -33,3 +33,13 @@ enabled = true
 position = Vector3(0.5, 0.5, 0)
 target_position = Vector3(1.0, 0, 0)
 enabled = true
+
+[node name="CameraPivot" type="Node3D" parent="."]
+position = Vector3(0, 0.8, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraPivot"]
+spring_length = 4.0
+collision_mask = 1
+
+[node name="Camera3D" type="Camera3D" parent="CameraPivot/SpringArm3D"]
+current = true
