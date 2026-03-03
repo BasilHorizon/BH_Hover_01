@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://bf7wukp1xv8d7"]
+[gd_scene load_steps=11 format=3 uid="uid://bf7wukp1xv8d7"]
 
 [ext_resource type="PackedScene" path="res://scenes/player/Player.tscn" id="1_m3dya"]
 
@@ -14,10 +14,33 @@ size = Vector3(20, 4, 1)
 [sub_resource type="BoxMesh" id="BoxMesh_wall"]
 size = Vector3(20, 4, 1)
 
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_qj4nc"]
+sky_top_color = Color(0.369, 0.545, 0.761, 1)
+sky_horizon_color = Color(0.686, 0.757, 0.839, 1)
+ground_horizon_color = Color(0.329, 0.329, 0.329, 1)
+ground_bottom_color = Color(0.149, 0.149, 0.149, 1)
+
+[sub_resource type="Sky" id="Sky_q6q4r"]
+sky_material = SubResource("ProceduralSkyMaterial_qj4nc")
+
+[sub_resource type="Environment" id="Environment_aog8w"]
+background_mode = 2
+sky = SubResource("Sky_q6q4r")
+ambient_light_source = 3
+ambient_light_energy = 0.5
+
 [node name="Main" type="Node3D"]
 
 [node name="Player" parent="." instance=ExtResource("1_m3dya")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_aog8w")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.872665, -0.610865, 0)
+light_energy = 1.5
+shadow_enabled = true
 
 [node name="Level" type="Node3D" parent="."]
 

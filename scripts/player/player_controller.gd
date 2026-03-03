@@ -45,7 +45,7 @@ func _physics_process(_delta: float) -> void:
 	if Input.is_action_just_pressed("jump") and grounded:
 		apply_central_impulse(Vector3.UP * jump_impulse)
 
-	if Input.is_action_pressed("wallrun") and not grounded:
+	if not grounded and move_dir != Vector3.ZERO:
 		if wall_ray_left.is_colliding() or wall_ray_right.is_colliding():
 			apply_central_force(Vector3.UP * acceleration * 0.2)
 
