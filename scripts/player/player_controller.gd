@@ -14,6 +14,8 @@ extends RigidBody3D
 @export_range(0.0, 1.0) var wallrun_gravity_factor: float = 0.35
 @export_range(0.0, 1.0) var floor_threshold: float = 0.65
 @export_range(0.0, 89.0) var floor_max_angle_degrees: float = 50.0
+@export var grounded_coyote_time: float = 0.08
+@export_range(0.0, 5.0) var min_dynamic_support_size: float = 0.2
 
 @onready var ground_ray: RayCast3D = $GroundRay
 @onready var wall_ray_left: RayCast3D = $WallRayLeft
@@ -28,6 +30,7 @@ var _wall_contact_timer: float = 0.0
 var _platform_velocity: Vector3 = Vector3.ZERO
 var _platform_prev_transform: Dictionary = {}
 var _is_grounded_by_contact: bool = false
+var _grounded_timer: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -50,7 +53,12 @@ func _physics_process(delta: float) -> void:
 	var move_dir: Vector3 = _get_move_direction(input_dir)
 	var current_velocity: Vector3 = linear_velocity
 	var horizontal_velocity: Vector3 = Vector3(current_velocity.x, 0.0, current_velocity.z)
-	var grounded: bool = ground_ray.is_colliding() or _is_grounded_by_contact
+	if _is_grounded_by_contact:
+		_grounded_timer = grounded_coyote_time
+	else:
+		_grounded_timer = max(_grounded_timer - delta, 0.0)
+
+	var grounded: bool = ground_ray.is_colliding() or _grounded_timer > 0.0
 	if not grounded:
 		_platform_velocity = Vector3.ZERO
 
@@ -97,9 +105,50 @@ func _get_ground_platform_velocity_from_state(state: PhysicsDirectBodyState3D, d
 		if floor_dot > best_floor_dot:
 			best_floor_dot = floor_dot
 			_is_grounded_by_contact = true
-			floor_velocity = _get_collider_velocity(collider, delta)
+			floor_velocity = _get_contact_velocity(state, i, collider, delta)
 
 	return floor_velocity
+
+func _get_contact_velocity(state: PhysicsDirectBodyState3D, contact_idx: int, collider: Object, delta: float) -> Vector3:
+	if state.has_method("get_contact_collider_velocity_at_position"):
+		var velocity_at_contact: Variant = state.call("get_contact_collider_velocity_at_position", contact_idx)
+		if velocity_at_contact is Vector3:
+			return velocity_at_contact
+
+	if not _is_supported_dynamic_ground(collider):
+		return Vector3.ZERO
+
+	return _get_collider_velocity(collider, delta)
+
+func _is_supported_dynamic_ground(collider: Object) -> bool:
+	if collider is not Node3D:
+		return false
+
+	var body: Node3D = collider as Node3D
+	if body is StaticBody3D:
+		return false
+
+	var aabb: AABB = _resolve_node_aabb(body)
+	if aabb == AABB():
+		return true
+
+	var largest_extent: float = max(aabb.size.x, max(aabb.size.y, aabb.size.z))
+	return largest_extent >= min_dynamic_support_size
+
+func _resolve_node_aabb(node: Node3D) -> AABB:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			var mesh_instance: MeshInstance3D = child as MeshInstance3D
+			if mesh_instance.mesh:
+				return mesh_instance.mesh.get_aabb()
+
+	for child in node.get_children():
+		if child is CollisionShape3D:
+			var collision: CollisionShape3D = child as CollisionShape3D
+			if collision.shape:
+				return collision.shape.get_debug_mesh().get_aabb()
+
+	return AABB()
 
 func _get_collider_velocity(collider: Object, delta: float) -> Vector3:
 	if collider is RigidBody3D:
