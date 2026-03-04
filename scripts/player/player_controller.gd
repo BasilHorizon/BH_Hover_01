@@ -12,6 +12,10 @@ extends RigidBody3D
 @export var wallrun_lean_speed: float = 8.0
 @export var wallrun_grace_time: float = 0.2
 @export_range(0.0, 1.0) var wallrun_gravity_factor: float = 0.35
+@export_range(0.0, 1.0) var floor_threshold: float = 0.65
+@export_range(0.0, 89.0) var floor_max_angle_degrees: float = 50.0
+@export var grounded_coyote_time: float = 0.08
+@export_range(0.0, 5.0) var min_dynamic_support_size: float = 0.2
 
 @onready var ground_ray: RayCast3D = $GroundRay
 @onready var wall_ray_left: RayCast3D = $WallRayLeft
@@ -23,9 +27,15 @@ var _pitch: float = 0.0
 var _is_wallrunning: bool = false
 var _wall_side: int = 0
 var _wall_contact_timer: float = 0.0
+var _platform_velocity: Vector3 = Vector3.ZERO
+var _platform_prev_transform: Dictionary = {}
+var _is_grounded_by_contact: bool = false
+var _grounded_timer: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	contact_monitor = true
+	max_contacts_reported = 8
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -43,18 +53,128 @@ func _physics_process(delta: float) -> void:
 	var move_dir: Vector3 = _get_move_direction(input_dir)
 	var current_velocity: Vector3 = linear_velocity
 	var horizontal_velocity: Vector3 = Vector3(current_velocity.x, 0.0, current_velocity.z)
-	var grounded: bool = ground_ray.is_colliding()
+	if _is_grounded_by_contact:
+		_grounded_timer = grounded_coyote_time
+	else:
+		_grounded_timer = max(_grounded_timer - delta, 0.0)
 
-	if move_dir != Vector3.ZERO:
-		var control: float = 1.0 if grounded else air_control
-		if horizontal_velocity.length() < max_speed or horizontal_velocity.dot(move_dir) < max_speed:
-			apply_central_force(move_dir * acceleration * control)
+	var grounded: bool = ground_ray.is_colliding() or _grounded_timer > 0.0
+	if not grounded:
+		_platform_velocity = Vector3.ZERO
+
+	var platform_horizontal_velocity: Vector3 = Vector3(_platform_velocity.x, 0.0, _platform_velocity.z)
+	var target_horizontal_velocity: Vector3 = move_dir * max_speed + platform_horizontal_velocity
+	var horizontal_velocity_error: Vector3 = target_horizontal_velocity - horizontal_velocity
+	var control: float = 1.0 if grounded else air_control
+	apply_central_force(horizontal_velocity_error * acceleration * control)
+
+	if move_dir == Vector3.ZERO and grounded and platform_horizontal_velocity == Vector3.ZERO:
+		apply_central_force(-horizontal_velocity * acceleration * 0.15)
 
 	if Input.is_action_just_pressed("jump") and grounded:
 		apply_central_impulse(Vector3.UP * jump_impulse)
 
 	_handle_wallrun(delta, grounded, move_dir)
 	_apply_wallrun_lean(delta)
+
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	_platform_velocity = _get_ground_platform_velocity_from_state(state, state.step)
+
+func _get_ground_platform_velocity_from_state(state: PhysicsDirectBodyState3D, delta: float) -> Vector3:
+	var gravity_vector: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
+	var up_dir: Vector3 = -gravity_vector.normalized()
+	var min_floor_dot: float = max(floor_threshold, cos(deg_to_rad(floor_max_angle_degrees)))
+	var best_floor_dot: float = -1.0
+	var floor_velocity: Vector3 = Vector3.ZERO
+	_is_grounded_by_contact = false
+
+	for i in state.get_contact_count():
+		var collider: Object = state.get_contact_collider_object(i)
+		if collider == null:
+			continue
+
+		var local_normal: Vector3 = state.get_contact_local_normal(i)
+		if local_normal == Vector3.ZERO:
+			continue
+
+		var world_normal: Vector3 = (global_transform.basis * local_normal).normalized()
+		var floor_dot: float = world_normal.dot(up_dir)
+		if floor_dot <= min_floor_dot:
+			continue
+
+		if floor_dot > best_floor_dot:
+			best_floor_dot = floor_dot
+			_is_grounded_by_contact = true
+			floor_velocity = _get_contact_velocity(state, i, collider, delta)
+
+	return floor_velocity
+
+func _get_contact_velocity(state: PhysicsDirectBodyState3D, contact_idx: int, collider: Object, delta: float) -> Vector3:
+	if state.has_method("get_contact_collider_velocity_at_position"):
+		var velocity_at_contact: Variant = state.call("get_contact_collider_velocity_at_position", contact_idx)
+		if velocity_at_contact is Vector3:
+			return velocity_at_contact
+
+	if not _is_supported_dynamic_ground(collider):
+		return Vector3.ZERO
+
+	return _get_collider_velocity(collider, delta)
+
+func _is_supported_dynamic_ground(collider: Object) -> bool:
+	if collider is not Node3D:
+		return false
+
+	var body: Node3D = collider as Node3D
+	if body is StaticBody3D:
+		return false
+
+	var aabb: AABB = _resolve_node_aabb(body)
+	if aabb == AABB():
+		return true
+
+	var largest_extent: float = max(aabb.size.x, max(aabb.size.y, aabb.size.z))
+	return largest_extent >= min_dynamic_support_size
+
+func _resolve_node_aabb(node: Node3D) -> AABB:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			var mesh_instance: MeshInstance3D = child as MeshInstance3D
+			if mesh_instance.mesh:
+				return mesh_instance.mesh.get_aabb()
+
+	for child in node.get_children():
+		if child is CollisionShape3D:
+			var collision: CollisionShape3D = child as CollisionShape3D
+			if collision.shape:
+				return collision.shape.get_debug_mesh().get_aabb()
+
+	return AABB()
+
+func _get_collider_velocity(collider: Object, delta: float) -> Vector3:
+	if collider is RigidBody3D:
+		return (collider as RigidBody3D).linear_velocity
+
+	if collider is AnimatableBody3D or collider is CharacterBody3D:
+		if collider.has_method("get_platform_velocity"):
+			return collider.call("get_platform_velocity")
+
+		if collider is Node:
+			var collider_node: Node = collider as Node
+			var tracker: Node = collider_node.get_node_or_null("PlatformVelocityTracker")
+			if tracker and tracker.has_method("get_velocity"):
+				return tracker.call("get_velocity")
+
+		if collider is Node3D:
+			var body: Node3D = collider as Node3D
+			var id: int = body.get_instance_id()
+			if _platform_prev_transform.has(id):
+				var prev_transform: Transform3D = _platform_prev_transform[id]
+				var velocity: Vector3 = (body.global_transform.origin - prev_transform.origin) / max(delta, 0.0001)
+				_platform_prev_transform[id] = body.global_transform
+				return velocity
+			_platform_prev_transform[id] = body.global_transform
+
+	return Vector3.ZERO
 
 func _handle_wallrun(delta: float, grounded: bool, move_dir: Vector3) -> void:
 	var touching_left: bool = wall_ray_left.is_colliding()
